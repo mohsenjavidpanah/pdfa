@@ -73,7 +73,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             # detect table lines
             gray = cv2.cvtColor(self.__current_page_image, cv2.COLOR_BGR2GRAY)
             lsd = cv2.createLineSegmentDetector(0)
-            index1 = 0
             lines = lsd.detect(gray)[0]
             final_lines = [
                 [int(round(p[0])), int(round(p[1])), int(round(p[2])), int(round(p[3]))]
@@ -90,31 +89,55 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             #         final_lines[index][3] = max(y1, y2)
 
             # oldx = -1
+            index1 = 0
             oldy = -1
             xs = set()
             ys = set()
             tables_y = []
-            table = {}
+            table = []
+            table_info = {}
             tables = []
+            tables_info = []
+            registered_lines = []
+            arrow = ''
+            old_arrow = ''
+            line_row = []
+            deleted = False
+            m = 0
             while index1 < len(final_lines):
                 line1 = final_lines[index1]
                 x1, y1, x2, y2 = line1
 
-                # Find tables in vertical arrows
+                # Find tables in vertical arrow
                 new_table = (len(tables_y) == 0 or (y1 - tables_y[-1]) >= 5) and y1 not in tables_y
                 for item in ys:
                     if not new_table:
                         break
                     if (len(ys) and (y1 - item) < 5):
                         new_table = False
+
                 if new_table:
                     table = []
+                    table_info = {
+                        'min-x': x1,
+                        'min-y': y1,
+                        'max-x': x2,
+                        'max-y': y2
+                    }
                     tables.append(table)
+                    tables_info.append(table_info)
                     tables_y.append(y1)
                     gray = cv2.putText(
                         gray, str(len(tables_y)), (5, y1), cv2.FONT_HERSHEY_SIMPLEX,
                         1, (0, 0, 0), 2, cv2.LINE_AA
                     )
+
+                table_info.update({
+                    'min-x': min(x1, table_info['min-x']),
+                    'min-y': min(y1, table_info['min-y']),
+                    'max-x': max(x2, table_info['max-x']),
+                    'max-y': max(y2, table_info['max-y'])
+                })
 
                 xs.add(x1)
                 xs.add(x2)
@@ -135,8 +158,15 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     final_lines[index1][1] = y1
                     final_lines[index1][3] = y2
 
+                _arrow = 'V' if x1 == x2 else 'H'
+                arrow = arrow or _arrow
+                if not deleted:
+                    old_arrow = arrow
+                arrow = _arrow
+
                 index2 = 0
                 deleted = False
+                diff = 0
                 while index2 < len(final_lines):
                     if index1 == index2:
                         index2 += 1
@@ -152,33 +182,101 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         diff = abs(y1 - y3)
                     elif x1 == x2 and x3 == x4:  # Vertical Lines
                         diff = abs(x1 - x3)
-                    else:
-                        diff = 0
 
                     if diff and diff < 5:
                         del final_lines[index2]
                         deleted = True
+                        break
                     else:
                         index2 += 1
 
-                if line1 not in table:
-                    table.append(line1)
-
                 if not deleted:
+                    m += 1
+                    # if line1 not in registered_lines:
+                    registered_lines.append(line1)
+                    # import pdb; pdb.set_trace()
+                    if old_arrow != arrow:
+                        if line_row:
+                            table.append(line_row)
+                        line_row = []
+                    line_row.append(line1 + [arrow, diff])
+
                     index1 += 1
 
-            # for x1, y1, x2, y2 in final_lines:
-            #     for x in xs:
-            #         pass
+            if line_row:
+                table.append(line_row)
 
-            #     for y in ys:
-            #         pass
-            print(*tables_y)
-            print(tables)
+            # print(*tables_y)
+            # print(tables)
 
-            for line in final_lines:
-                x0, y0, x1, y1 = line
-                gray = cv2.line(gray, (x0, y0), (x1, y1), (0, 255, 0), 1, cv2.LINE_AA)
+            index = 0
+            tables_data = []
+            old_arrow = ''
+
+            def process_row_lines(lines, data):
+                for line in lines:
+                    if abs(line[0] - data['min-x']) < 5:
+                        line[0] = data['min-x']
+                    if abs(line[1] - data['min-y']) < 5:
+                        line[1] = data['min-y']
+                    if abs(line[2] - data['max-x']) < 5:
+                        line[2] = data['max-x']
+                    if abs(line[3] - data['max-y']) < 5:
+                        line[3] = data['max-y']
+
+            ti = 0
+            for table in tables:
+                data = {'cells': []}
+                data['min-x'] = tables_info[ti]['min-x']
+                data['min-y'] = tables_info[ti]['min-y']
+                data['max-x'] = tables_info[ti]['max-x']
+                data['max-y'] = tables_info[ti]['max-y']
+                ti += 1
+                process_row_lines(table[0], data)
+                process_row_lines(table[-1], data)
+                lines = table[0][:]
+                is_real_table = True
+                for i in range(1, len(table) - 1):
+                    process_row_lines(table[i], data)
+                    prev_row = table[i - 1]
+                    row = table[i]
+                    next_row = table[i + 1]
+                    process_row_lines(row, data)
+
+                    if len(row) > 2:
+                        old_line = row[0]
+                        for line_index in range(1, len(row)):
+                            line = row[line_index]
+                            x1, y1, x2, y2 = line[:4]
+                            if line[4] == 'V':
+                                if abs(y1 - data['min-y']) < 10:
+                                    line[1] = data['min-y']
+                                elif abs(y1 - old_line[3]) < 10:
+                                    line[1] = old_line[3]
+                            else:
+                                if abs(x1 - data['min-x']) < 10:
+                                    line[0] = data['min-x']
+                                elif abs(x1 - old_line[0]) < 10:
+                                    line[0] = old_line[0]
+                            old_line = line
+                    lines += table[i][:]
+
+                if not is_real_table:
+                    del tables[index]
+                else:
+                    tables_data.append(data)
+                index += 1
+
+            n = 0
+            for table in tables:
+                # print('>', table)
+                for row in table:
+                    for line in row:
+                        n += 1
+                        x0, y0, x1, y1 = line[:4]
+                        gray = cv2.line(gray, (x0, y0), (x1, y1), (0, 255, 0), 1, cv2.LINE_AA)
+            print(f'm: {m}, n: {n}')
+
             cv2.imwrite(
                 os.path.splitext(self.pages_images[self.__current_page])[0] + '-out-gray.jpg', gray
             )
@@ -275,7 +373,7 @@ if filter:
             if abs(rho_i - rho_j) < rho_threshold and abs(theta_i - theta_j) < theta_threshold:
                 line_flags[indices[j]] = False # if it is similar and have not been disregarded yet then drop it now
 
-print('number of Hough lines:',  len(lines))
+print('number of Hough lines:', len(lines))
 
 filtered_lines = []
 
