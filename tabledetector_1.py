@@ -119,6 +119,9 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         new_table = False
 
                 if new_table:
+                    if line_row:
+                        table.append(line_row)
+                    line_row = []
                     table = []
                     table_info = {
                         'min-x': x1,
@@ -146,7 +149,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 ys.add(y1)
                 ys.add(y2)
                 if oldy != y1:
-                    # print(y1)
                     oldy = y1
 
                 if x1 != x2 and abs(x1 - x2) <= 5:
@@ -193,7 +195,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         index2 += 1
 
                 if not deleted:
-                    m += 1
                     # if line1 not in registered_lines:
                     registered_lines.append(line1)
                     # import pdb; pdb.set_trace()
@@ -238,30 +239,68 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 process_row_lines(table[-1], data)
                 lines = table[0][:]
                 is_real_table = True
-                for i in range(1, len(table) - 1):
+                next_row = []
+                vlines = []
+                for i in range(1, len(table), 2):
                     process_row_lines(table[i], data)
                     prev_row = table[i - 1]
                     row = table[i]
                     next_row = table[i + 1]
                     process_row_lines(row, data)
-
-                    if len(row) > 2:
-                        old_line = row[0]
-                        for line_index in range(1, len(row)):
+                    if len(row) >= 2:
+                        # old_line = row[0]
+                        for line_index in range(len(row)):
                             line = row[line_index]
                             x1, y1, x2, y2 = line[:4]
-                            if line[4] == 'V':
-                                if abs(y1 - data['min-y']) < 10:
-                                    line[1] = data['min-y']
-                                elif abs(y1 - old_line[3]) < 10:
-                                    line[1] = old_line[3]
-                            else:
-                                if abs(x1 - data['min-x']) < 10:
-                                    line[0] = data['min-x']
-                                elif abs(x1 - old_line[0]) < 10:
-                                    line[0] = old_line[0]
-                            old_line = line
-                    lines += table[i][:]
+                            if line[4] != 'V':
+                                raise Exception('Vertical!!?')
+                            if abs(y1 - data['min-y']) < 10:
+                                line[1] = data['min-y']
+                            # elif abs(y1 - old_line[3]) < 10:
+                            #     line[1] = old_line[3]
+
+                            for l in prev_row:
+                                if abs(y1 - l[1]) < 15:
+                                    line[1] = l[1]
+                                if abs(y1 - l[3]) < 15:
+                                    line[1] = l[3]
+                                if abs(x1 - l[0]) < 15:
+                                    l[0] = x1
+                                elif abs(x1 - l[2]) < 15:
+                                    l[2] = x1
+
+                            for l in next_row:
+                                if abs(y2 - l[3]) < 15:
+                                    line[3] = l[3]
+                                elif abs(y2 - l[1]) < 15:
+                                    line[3] = l[1]
+                                if abs(x1 - l[0]) < 15:
+                                    l[0] = x1
+                                if abs(x1 - l[2]) < 15:
+                                    l[2] = x1
+
+                            vlines.append(line)
+
+                            # else:
+                            #     if abs(x1 - data['min-x']) < 10:
+                            #         line[0] = data['min-x']
+                            #     elif abs(x1 - old_line[0]) < 10:
+                            #         line[0] = old_line[0]
+                            # old_line = line
+
+                for last_line in next_row:
+                    if last_line and last_line[1] != last_line[3]:
+                        last_line[1] = max(last_line[1], last_line[3])
+                        last_line[3] = last_line[1]
+
+                for j in range(0, len(table), 2):
+                    hrow = table[j]
+                    for hline in hrow:
+                        for vline in vlines:
+                            if abs(hline[0] - vline[0]) < 10:
+                                hline[0] = vline[0]
+                            if abs(hline[2] - vline[2]) < 10:
+                                hline[2] = vline[2]
 
                 if not is_real_table:
                     del tables[index]
@@ -277,7 +316,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         n += 1
                         x0, y0, x1, y1 = line[:4]
                         gray = cv2.line(gray, (x0, y0), (x1, y1), (0, 255, 0), 1, cv2.LINE_AA)
-            print(f'm: {m}, n: {n}')
 
             cv2.imwrite(
                 os.path.splitext(self.pages_images[self.__current_page])[0] + '-out-gray.jpg', gray
@@ -301,7 +339,7 @@ class PDFaParser(object):
     def fold_pdf_style(self):
         # Extract XML
         tpath = os.path.join(self.temp, "pdf.xml")
-        print("----->", f"pdftohtml -c -xml {self.pdf_path} {tpath}")
+        # print("----->", f"pdftohtml -c -xml {self.pdf_path} {tpath}")
         os.system(f"pdftohtml -c -xml {self.pdf_path} {tpath}")
         # Extract PDF Pages Images
         pages_dir = os.path.join(self.temp, 'pages')
