@@ -5,6 +5,7 @@ from xml import sax
 
 import cv2
 import numpy as np
+from pylsd.lsd import lsd
 from pdf2image import convert_from_path
 
 
@@ -73,9 +74,9 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             )
             # detect table lines
             gray = cv2.cvtColor(self.__current_page_image, cv2.COLOR_BGR2GRAY)
-            self.__current_page_erase_color = gray[0, 0]
-            lsd = cv2.createLineSegmentDetector(0)
-            lines = lsd.detect(gray)[0]
+            # lsd = cv2.createLineSegmentDetector(0)
+            import pdb; pdb.set_trace()
+            lines = lsd(gray)
             final_lines = [
                 [int(round(p[0])), int(round(p[1])), int(round(p[2])), int(round(p[3]))]
                 for p in (line[0] for line in lines)
@@ -105,21 +106,10 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             old_arrow = ''
             line_row = []
             deleted = False
+            m = 0
             while index1 < len(final_lines):
                 line1 = final_lines[index1]
                 x1, y1, x2, y2 = line1
-                if (y1 - y2 > 5) or (abs(y1 - y2) < 5 and x1 - x2 > 5):
-                    ty = y1
-                    tx = x1
-                    y1 = y2
-                    x1 = x2
-                    y2 = ty
-                    x2 = tx
-                    
-                    line1[0] = x1
-                    line1[1] = y1
-                    line1[2] = x2
-                    line1[3] = y2
 
                 # Find tables in vertical arrow
                 new_table = (len(tables_y) == 0 or (y1 - tables_y[-1]) >= 5) and y1 not in tables_y
@@ -134,17 +124,11 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         table.append(line_row)
                     line_row = []
                     table = []
-                    #table_info = {
-                    #    'min-x': x1,
-                    #    'min-y': y1,
-                    #    'max-x': x2,
-                    #    'max-y': y2
-                    #}
                     table_info = {
-                        'min-x': min(x1, x2),
-                        'min-y': min(y1, y2),
-                        'max-x': max(x1, x2),
-                        'max-y': max(y1, y2)
+                        'min-x': x1,
+                        'min-y': y1,
+                        'max-x': x2,
+                        'max-y': y2
                     }
                     tables.append(table)
                     tables_info.append(table_info)
@@ -155,10 +139,10 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     )
 
                 table_info.update({
-                    'min-x': min(min(x1, x2), table_info['min-x']),
-                    'min-y': min(min(y1, y2), table_info['min-y']),
-                    'max-x': max(max(x1, x2), table_info['max-x']),
-                    'max-y': max(max(y1, y2), table_info['max-y'])
+                    'min-x': min(x1, table_info['min-x']),
+                    'min-y': min(y1, table_info['min-y']),
+                    'max-x': max(x2, table_info['max-x']),
+                    'max-y': max(y2, table_info['max-y'])
                 })
 
                 xs.add(x1)
@@ -212,18 +196,14 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         index2 += 1
 
                 if not deleted:
-                    # OpenCV Generates Two Line per Real One Line
-                    # We need To Remove One Of Them
                     # if line1 not in registered_lines:
                     registered_lines.append(line1)
                     # import pdb; pdb.set_trace()
                     if old_arrow != arrow:
                         if line_row:
                             table.append(line_row)
-                            if len(tables) == 8:
-                                print(line_row)
                         line_row = []
-                    line_row.append(line1 + [arrow])
+                    line_row.append(line1 + [arrow, diff])
 
                     index1 += 1
 
@@ -232,7 +212,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
 
             # print(*tables_y)
             # print(tables)
-            ti = 0
+
             index = 0
             tables_data = []
             old_arrow = ''
@@ -248,96 +228,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     if abs(line[3] - data['max-y']) < 5:
                         line[3] = data['max-y']
 
+            ti = 0
             for table in tables:
-                # Reordering Table Rows First
-                for i in range(1, len(table), 2):
-                    r1 = table[i]
-                    if len(r1) == 0:
-                        del table[i]
-                        continue
-                    for j in range(i + 2, len(table), 2):
-                        r2 = table[j]
-                        if r1 and r2:
-                            for l1 in range(len(r1)):
-                                for l2 in range(len(r2)):
-                                    if abs(r1[l1][1] - r2[l2][1]) < 10:
-                                        l = r2[l2]
-                                        r1.append(l)
-                                        del r2[l2]
-                i = 0
-                while i < len(table) - 1:
-                    if table[i][0][4] == table[i + 1][0][4]:
-                        table[i].extend(table[i + 1])
-                        del table[i + 1]
-                        continue
-                    i += 1
-                    
-                # Split Unique multiple Cells Vertical Lines
-                max_vertical_x = 0
-                for vrow_index in range(1, len(table), 2):
-                    max_vertical_x = max(
-                        sorted(
-                            table[vrow_index],
-                            key=lambda mr: mr[0],
-                            reverse=True
-                        )[0][0],
-                        max_vertical_x
-                    )
-                1+1
-                for vrow_index in range(1, len(table), 2):
-                    vrow = sorted(table[vrow_index], key=lambda r: r[0])
-                    for vline_index in range(len(vrow)):
-                        vline = vrow[vline_index]
-                        next_vline = None
-                        if vline_index < len(vrow) - 1:
-                            next_vline = vrow[vline_index + 1]
-                        else:
-                            next_vline = [max_vertical_x ]
-                            
-                        print(vline[1] + 4, vline[3] - 4)
-                        img_slice = gray[
-                            vline[1] + 2:vline[3] - 2,
-                            vline[2] + 2:next_vline[0] - 2
-                        ].copy()
-                        img_slice[img_slice == self.__current_page_erase_color] = 0
-                        img_slice[img_slice != 0] = 255
-                        # Maybe next time in others PDF pages complexest condition raisin
-                        # But in current time i dont consider these
-                        aaq = np.unique(np.nonzero(img_slice)[1])
-                        if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-                          (next_vline[0] - vline[2] - 2) / 2:
-                            vrow.insert(
-                                vline_index,
-                                [
-                                    vline[2], vline[3],
-                                    next_vline[0], next_vline[1]
-                                ]
-                            )
-                    print('}}}}}}]>', (vrow[-1][0] - max_vertical_x), max_vertical_x)
-                    if (vrow[-1][0] - max_vertical_x) < 5:
-                        vline = vrow[-1]
-                        next_vline = vrow[-2]
-                        print(vline[1] + 4, vline[3] - 4)
-                        img_slice = gray[
-                            vline[1] + 2:vline[3] - 2,
-                            next_vline[0] + 2:vline[2] - 2
-                        ].copy()
-                        img_slice[img_slice == self.__current_page_erase_color] = 0
-                        img_slice[img_slice != 0] = 255
-                        # Maybe next time in others PDF pages complexest condition raisin
-                        # But in current time i dont consider these
-                        aaq = np.unique(np.nonzero(img_slice)[1])
-                        if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-                          (next_vline[0] - vline[2] - 2) / 2:
-                            vrow.insert(
-                                vline_index,
-                                [
-                                    vline[2], vline[3],
-                                    next_vline[0], next_vline[1]
-                                ]
-                            )
-
-
                 data = {'cells': []}
                 data['min-x'] = tables_info[ti]['min-x']
                 data['min-y'] = tables_info[ti]['min-y']
@@ -356,56 +248,46 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     row = table[i]
                     next_row = table[i + 1]
                     process_row_lines(row, data)
-                    # old_line = row[0]
-                    for line_index in range(len(row)):
-                        line = row[line_index]
-                        x1, y1, x2, y2 = line[:4]
-                        if line[4] != 'V':
-                            raise Exception('Vertical!!?')
-                        if abs(y1 - data['min-y']) < 10:
-                            line[1] = data['min-y']
-                        # elif abs(y1 - old_line[3]) < 10:
-                        #     line[1] = old_line[3]
-                        
-                        for l in prev_row:
-                            if ti >= 8 and i == 3:
-                                print(ti, i, line_index, len(row))
-                                #import pdb; pdb.set_trace()
-                            if abs(y1 - l[1]) < 15:
-                                line[1] = l[1] + 50
-                            if abs(y1 - l[3]) < 15:
-                                line[1] = l[3]
-                            if abs(y2 - l[1]) < 15:
-                                line[3] = l[1] + 50
-                            if abs(y2 - l[3]) < 15:
-                                line[3] = l[3]
-                            if abs(x1 - l[0]) < 15:
-                                l[0] = x1
-                            elif abs(x1 - l[2]) < 15:
-                                l[2] = x1
+                    if len(row) >= 2:
+                        # old_line = row[0]
+                        for line_index in range(len(row)):
+                            line = row[line_index]
+                            x1, y1, x2, y2 = line[:4]
+                            if line[4] != 'V':
+                                raise Exception('Vertical!!?')
+                            if abs(y1 - data['min-y']) < 10:
+                                line[1] = data['min-y']
+                            # elif abs(y1 - old_line[3]) < 10:
+                            #     line[1] = old_line[3]
 
-                        for l in next_row:
-                            if abs(y2 - l[3]) < 15:
-                                line[3] = l[3]
-                            elif abs(y2 - l[1]) < 15:
-                                line[3] = l[1]
-                            if abs(y1 - l[1]) < 15:
-                                line[1] = l[1] + 50
-                            if abs(y1 - l[3]) < 15:
-                                line[1] = l[3]
-                            if abs(x1 - l[0]) < 15:
-                                l[0] = x1
-                            if abs(x1 - l[2]) < 15:
-                                l[2] = x1
+                            for l in prev_row:
+                                if abs(y1 - l[1]) < 15:
+                                    line[1] = l[1]
+                                if abs(y1 - l[3]) < 15:
+                                    line[1] = l[3]
+                                if abs(x1 - l[0]) < 15:
+                                    l[0] = x1
+                                elif abs(x1 - l[2]) < 15:
+                                    l[2] = x1
 
-                        vlines.append(line)
+                            for l in next_row:
+                                if abs(y2 - l[3]) < 15:
+                                    line[3] = l[3]
+                                elif abs(y2 - l[1]) < 15:
+                                    line[3] = l[1]
+                                if abs(x1 - l[0]) < 15:
+                                    l[0] = x1
+                                if abs(x1 - l[2]) < 15:
+                                    l[2] = x1
 
-                        # else:
-                        #     if abs(x1 - data['min-x']) < 10:
-                        #         line[0] = data['min-x']
-                        #     elif abs(x1 - old_line[0]) < 10:
-                        #         line[0] = old_line[0]
-                        # old_line = line
+                            vlines.append(line)
+
+                            # else:
+                            #     if abs(x1 - data['min-x']) < 10:
+                            #         line[0] = data['min-x']
+                            #     elif abs(x1 - old_line[0]) < 10:
+                            #         line[0] = old_line[0]
+                            # old_line = line
 
                 for last_line in next_row:
                     if last_line and last_line[1] != last_line[3]:
@@ -420,67 +302,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                                 hline[0] = vline[0]
                             if abs(hline[2] - vline[2]) < 10:
                                 hline[2] = vline[2]
-                                
-                # Detect excepted Vertical Lines
-                for vrow_index in range(1, len(table), 2):
-                    vrow = sorted(table[vrow_index], key=lambda r: r[0])
-                    for vline_index in range(len(vrow)):
-                        vline = vrow[vline_index]
-                        next_vline = None
-                        if vline_index < len(vrow) - 1:
-                            next_vline = vrow[vline_index + 1]
-                        else:
-                            next_vline = [data['max-x']]
-
-                        img_slice = gray[
-                            vline[1] + 4:vline[3] - 4,
-                            vline[2] + 2:next_vline[0] - 2
-                        ].copy()
-                        img_slice[img_slice == self.__current_page_erase_color] = 0
-                        img_slice[img_slice != 0] = 255
-                        # Maybe next time in others PDF pages complexest condition raisin
-                        # But in current time i dont consider these
-                        aaq = np.unique(np.nonzero(img_slice)[1])
-                        if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-                          (next_vline[0] - vline[2] - 2) / 2:
-                            vrow.insert(
-                                vline_index,
-                                [
-                                    vline[2], vline[3],
-                                    next_vline[0], next_vline[1]
-                                ]
-                            )
-
-                # Detect excepted Horizontal Lines
-                for hrow_index in range(0, len(table), 2):
-                    hrow = table[hrow_index]
-                    for hline_index in range(len(hrow)):
-                        hline = hrow[hline_index]
-
-                        next_hline = None
-                        if hline_index < len(hrow) - 1:
-                            next_hline = hrow[hline_index + 1]
-                        else:
-                            next_hline = [data['max-x']]
-
-                        if next_hline[0] - hline[2] > 2:
-                            img_slice = gray[
-                                hline[1] - 4:hline[1] + 4,
-                                hline[2] + 2:next_hline[0] - 2
-                            ].copy()
-                            img_slice[img_slice == self.__current_page_erase_color] = 0
-                            img_slice[img_slice != 0] = 255
-                            # Maybe next time in others PDF pages complexest condition raisin
-                            # But in current time i dont consider these
-                            if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-                              (next_hline[0] - hline[2] - 2) / 2:
-                                hrow.insert(
-                                    hline_index,
-                                    [
-                                        hline[2], hline[3],
-                                        next_hline[0], next_hline[1]
-                                    ]
-                                )
 
                 if not is_real_table:
                     del tables[index]
@@ -512,7 +333,6 @@ class PDFaParser(object):
         self.pdf = open(pdf_path)
         self.pages = []
         self.temp = tempfile.mkdtemp(prefix="pidifa_")
-        print(self.temp + '/pages')
 
     def convert_pdf_to_docx(self):
         words, boxes = self.fold_pdf_style()
