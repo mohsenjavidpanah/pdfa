@@ -73,6 +73,187 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         self.__current_tag = self.__hierarchy[-1][0] if len(self.__hierarchy) else None
         self.__current_attrs = self.__hierarchy[-1][1] if len(self.__hierarchy) else {}
 
+    def detect_excepted_vertical_lines_in_table(self, table, gray_image):
+        """
+        Parameters
+        ----------
+        tabel : list
+            A nested list of lines that categorized by Line Arrow direction
+
+        gray_image: OpenCV.Image
+            The gray image instance
+        """
+        max_vertical_x = 0
+        for vrow_index in range(1, len(table), 2):
+            max_vertical_x = max(
+                sorted(
+                    table[vrow_index],
+                    key=lambda mr: mr[0],
+                    reverse=True
+                )[0][0],
+                max_vertical_x
+            )
+        for vrow_index in range(1, len(table), 2):
+            line_detected = False
+            vrow = sorted(table[vrow_index], key=lambda r: r[0])
+            # vrow = table[vrow_index]
+            for vline_index in range(len(vrow)):
+                vline = vrow[vline_index]
+                next_vline = None
+                if vline_index < len(vrow) - 1:
+                    next_vline = vrow[vline_index + 1]
+                else:
+                    next_vline = [max_vertical_x]
+
+                img_slice = gray_image[
+                    vline[1]:vline[3],
+                    vline[2] + 5:next_vline[0] - 5
+                ]
+                oldx = 0
+                thickness = 0
+                points = np.where(img_slice <= 220)
+                for x in np.unique(points[1]):
+                    # print(x, (img_slice[:, x] <= 220).sum())
+                    if (img_slice[:, x] <= 220).sum() >= abs(vline[1] - vline[3]) / 1.4:
+                        line_detected = True
+                        thickness += 1
+                    elif line_detected:
+                        cv2.imwrite(
+                            f'/home/mohsen/aaa/{vline[2]} {vline[1]} -'
+                            f' {next_vline[0]} {vline[3]}.png', img_slice
+                        )
+                        if [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness] \
+                           not in table[vrow_index]:
+                            vrow.append(
+                                [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness]
+                            )
+                            table[vrow_index] = sorted(vrow, key=lambda r: r[0])
+                        line_detected = False
+                    oldx = x
+
+        return table
+
+    def split_multiple_cells_lines(self, table):
+        """
+        Split long lines that members of tow or greater cells
+
+        Parameters
+        ----------
+        tabel : list
+            A nested list of lines that categorized by Line Arrow direction
+        """
+        all_h_cells = []
+        all_v_cells = []
+        for row in table:
+            if row[0][4] == 'V':
+                all_v_cells.extend(row[:])
+            else:
+                all_h_cells.extend(row[:])
+
+        new_table = table[:]
+        i = 0
+        for row in table:
+            j = 0
+            splits = set()
+            for line in row:
+                if line[4] == 'H':
+                    for vline in all_v_cells:
+                        # if ((abs(vline[1] - line[1]) < 5) or (abs(vline[3] - line[1]) < 5)) and \
+                        #    line[0] < vline[0] < line[2]:
+                        if line[0] < vline[0] < line[2]:
+                            splits.add(vline[0])
+                    y = line[1]
+                    splits = sorted(splits)
+                    if splits:
+                        old_line = new_table[i][j]
+                        del new_table[i][j]
+                        thickness = 1
+                        start_x = line[0]
+                        for x in splits:
+                            if start_x == x - 1:
+                                thickness += 1
+                            else:
+                                new_table[i].insert(j, [start_x, y, x, y, 'H', thickness or 1])
+                                thickness = 0
+                            start_x = x
+                        if len(splits) == 0:
+                            new_table[i].insert(j, old_line)
+                        else:
+                            new_table[i].insert(j, [start_x, y, line[2], y, 'H', thickness or 1])
+                    splits = set()
+                elif line[4] == 'V':
+                    # splits.add(line[1])
+                    for hline in all_h_cells:
+                        # if ((abs(hline[0] - line[0]) < 5) or (abs(hline[2] - line[0]) < 5)) and \
+                        #    line[1] < hline[1] < line[3]:
+                        # print('>', hline, end=',')
+                        if line[1] < hline[1] < line[3] and abs(line[3] - hline[1]) > 5 and \
+                           abs(line[1] - hline[1]) > 5:
+                            splits.add(hline[1])
+                    # print('')
+                    splits.add(line[3])
+                    x = line[0]
+                    splits = sorted(splits)
+                    old_line = new_table[i][j]
+                    start_y = line[1]
+                    if splits and splits[0] != old_line[3]:
+                        del new_table[i][j]
+                        # if 331 in splits:
+                        #     print("----=>", splits)
+                        for y in splits:
+                            # Split Vertical Line in Others Row
+                            vinserted = False
+                            min_dist = None
+                            min_vrow = None
+                            vindex = 0
+                            for vrow in new_table:
+                                if vinserted:
+                                    break
+                                for vline in vrow:
+                                    dist = (abs(vline[1] - start_y))
+                                    if vline[4] == 'V' and dist <= 5:
+                                        # if y in [331]:
+                                        #     import pdb; pdb.set_trace()
+                                        vrow.append(
+                                            [x, vrow[0][1], x, vrow[0][3], 'V', 1]
+                                        )
+                                        # if 331 in splits:
+                                        #     print("1 >>>=>", start_y, y, vrow)
+                                        start_y = y
+                                        vinserted = True
+                                        break
+                                    elif vline[4] == 'V' and dist < (min_dist or dist + 1):
+                                        min_dist = dist
+                                        min_vrow = vrow
+                                        # if [x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1] in min_vrow:
+                                        #     vinserted = True
+                                        #     break
+                                vindex += 1
+                            # if y in [331]:
+                            #     import pdb; pdb.set_trace()
+                            if not vinserted:
+                                if [x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1] not in min_vrow:
+                                    min_vrow.append([x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1])
+                                    # if 331 in splits:
+                                    #     print("2 >>>=>", start_y, y, min_dist, vrow)
+                            # elif 400 > y >= 266:
+                            #     print("?? >", min_vrow, '\n', '==' * 40)
+                        if len(splits) == 0:
+                            new_table[i].insert(j, old_line)
+                    splits = set()
+                j += 1
+            i += 1
+
+        i = 0
+        for row in new_table:
+            if row[0][4] == 'H':
+                new_table[i] = sorted(row, key=lambda l: [l[0], l[1]])
+            elif row[0][4] == 'V':
+                new_table[i] = sorted(row, key=lambda l: [l[1], l[0]])
+            i += 1
+
+        return new_table
+
     def process_page(self):
         cv2.imwrite(
             os.path.splitext(self.pages_images[self.__current_page])[0] + '-out.jpg',
@@ -264,103 +445,11 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     continue
                 i += 1
 
-            # Split Unique multiple Cells Vertical Lines
-            max_vertical_x = 0
-            for vrow_index in range(1, len(table), 2):
-                max_vertical_x = max(
-                    sorted(
-                        table[vrow_index],
-                        key=lambda mr: mr[0],
-                        reverse=True
-                    )[0][0],
-                    max_vertical_x
-                )
-            1 + 1
-            # print('----->>', ti, table)
-            # for vrow_index in range(1, len(table), 2):
-            #     vrow = sorted(table[vrow_index], key=lambda r: r[0])
-            #     for vline_index in range(len(vrow)):
-            #         vline = vrow[vline_index]
-            #         next_vline = None
-            #         if vline_index < len(vrow) - 1:
-            #             next_vline = vrow[vline_index + 1]
-            #         else:
-            #             next_vline = [max_vertical_x]
+            # Split multiple cells Lines
+            table = self.split_multiple_cells_lines(table)
+            # Detect excepted vertical lines
+            table = self.detect_excepted_vertical_lines_in_table(table, gray)
 
-            #         img_slice = gray[
-            #             vline[1] + 2:vline[3] - 2,
-            #             vline[2] + 2:next_vline[0] - 2
-            #         ].copy()
-            #         img_slice[img_slice == self.__current_page_erase_color] = 0
-            #         img_slice[img_slice != 0] = 255
-            #         counter = 0
-            #         removed_index = []
-            #         current_index = 0
-            #         min_average = 100
-            #         while current_index < len(img_slice):
-            #             if np.average(img_slice[current_index]) <= min_average:
-            #                 img_slice = np.delete(img_slice, current_index)
-            #                 removed_index.append(counter)
-            #             else:
-            #                 current_index += 1
-            #             counter += 1
-            #         # Maybe next time in others PDF pages complexest condition raisin
-            #         # But in current time i dont consider these
-            #         if len(img_slice):
-            #             vrow.insert(
-            #                 vline_index,
-            #                 [
-            #                     vline[2], vline[3],
-            #                     next_vline[0], vline[1]
-            #                 ]
-            #             )
-            #             print('=======>>', [
-            #                 vline[2], vline[3],
-            #                 next_vline[0], vline[1]
-            #             ])
-            #     if (vrow[-1][0] - max_vertical_x) < 5:
-            #         vline = vrow[-1]
-            #         next_vline = None
-            #         try:
-            #             next_vline = vrow[-2]
-            #         except IndexError:
-            #             max_dist = 9999999999999999999999999
-            #             for table_v_line in table:
-            #                 if table[4] == 'V' and abs(table_v_line[0] - vline[0]) < max_dist and \
-            #                    abs(table_v_line[1] - vline[1]) < 5:
-            #                     next_vline = table_v_line
-            #                     max_dist = abs(table_v_line[0] - vline[0])
-            #             # if next_vline is None:
-            #             #     continue
-            #         img_slice = gray[
-            #             vline[1] + 2:vline[3] - 2,
-            #             next_vline[0] + 2:vline[2] - 2
-            #         ].copy()
-            #         img_slice[img_slice == self.__current_page_erase_color] = 0
-            #         img_slice[img_slice != 0] = 255
-            #         min_average = 255 if img_slice.shape[1] == 0 else 100 / img_slice.shape[1]
-            #         counter = 0
-            #         removed_index = []
-            #         current_index = 0
-            #         while current_index < len(img_slice):
-            #             if np.average(img_slice[current_index]) <= min_average:
-            #                 img_slice = np.delete(img_slice, current_index)
-            #                 removed_index.append(counter)
-            #             else:
-            #                 current_index += 1
-            #             counter += 1
-            #         # Maybe next time in others PDF pages complexest condition raisin
-            #         # But in current time i dont consider these
-            #         if len(img_slice):
-            #             vrow.insert(
-            #                 vline_index,
-            #                 [
-            #                     vline[2], vline[3],
-            #                     next_vline[0], next_vline[1]
-            #                 ]
-            #             )
-
-            # print('+++++>>', ti, table)
             data = {'cells': []}
             data['min-x'] = tables_info[ti]['min-x']
             data['min-y'] = tables_info[ti]['min-y']
@@ -444,36 +533,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         if abs(hline[2] - vline[2]) < 10:
                             hline[2] = vline[2]
 
-            # # Detect excepted Vertical Lines
-            # for vrow_index in range(1, len(table), 2):
-            #     vrow = sorted(table[vrow_index], key=lambda r: r[0])
-            #     for vline_index in range(len(vrow)):
-            #         vline = vrow[vline_index]
-            #         next_vline = None
-            #         if vline_index < len(vrow) - 1:
-            #             next_vline = vrow[vline_index + 1]
-            #         else:
-            #             next_vline = [data['max-x']]
-
-            #         img_slice = gray[
-            #             vline[1] + 4:vline[3] - 4,
-            #             vline[2] + 2:next_vline[0] - 2
-            #         ].copy()
-            #         img_slice[img_slice == self.__current_page_erase_color] = 0
-            #         img_slice[img_slice != 0] = 255
-            #         # Maybe next time in others PDF pages complexest condition raisin
-            #         # But in current time i dont consider these
-            #         aaq = np.unique(np.nonzero(img_slice)[1])
-            #         if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-            #           (next_vline[0] - vline[2] - 2) / 2:
-            #             vrow.insert(
-            #                 vline_index,
-            #                 [
-            #                     vline[2], vline[3],
-            #                     next_vline[0], next_vline[1]
-            #                 ]
-            #             )
-
             # Detect excepted Horizontal Lines
             for hrow_index in range(0, len(table), 2):
                 hrow = table[hrow_index]
@@ -486,6 +545,9 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     else:
                         next_hline = [data['max-x']]
 
+                    if [hline[2], hline[3], next_hline[0], hline[3]] in hrow:
+                        continue
+
                     if next_hline[0] - hline[2] > 2:
                         img_slice = gray[
                             hline[1] - 4:hline[1] + 4,
@@ -493,22 +555,27 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         ].copy()
                         img_slice[img_slice == self.__current_page_erase_color] = 0
                         img_slice[img_slice != 0] = 255
-                        # Maybe next time in others PDF pages complexest condition raisin
-                        # But in current time i dont consider these
-                        if 5 < len(np.unique(np.nonzero(img_slice)[1])) >= \
-                           (next_hline[0] - hline[2] - 2) / 2:
-                            hrow.insert(
-                                hline_index,
-                                [
-                                    hline[2], hline[3],
-                                    next_hline[0], next_hline[1]
-                                ]
-                            )
+
+                        counts = 0
+                        for y in np.unique(np.nonzero(img_slice)[0]):
+                            counts = np.count_nonzero(img_slice[y])
+                            # Maybe next time in others PDF pages complexest condition raisin
+                            # But in current time i dont consider these
+                            if 5 < counts >= img_slice.shape[1] / 1.4:
+                                hrow.insert(
+                                    hline_index,
+                                    [
+                                        hline[2], hline[3],
+                                        next_hline[0], hline[3]
+                                    ]
+                                )
+                                break
 
             if not is_real_table:
                 del tables[index]
             else:
                 tables_data.append(data)
+            tables[index] = table
             index += 1
 
         n = 0
