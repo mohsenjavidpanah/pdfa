@@ -124,9 +124,19 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         )
                         if [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness] \
                            not in table[vrow_index]:
+                            x = vline[0] + oldx + 5
+                            initiated_x = x
+                            for same_vrow in table:
+                                for x_vline in same_vrow:
+                                    if abs(x_vline[0] - x) < 5:
+                                        x = x_vline[0]
+                                        break
+                                if x != initiated_x:
+                                    break
                             vrow.append(
-                                [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness]
+                                [x, vline[1], x, vline[3], 'V', thickness]
                             )
+                            print(">>>", vrow[-1])
                             table[vrow_index] = sorted(vrow, key=lambda r: r[0])
                         line_detected = False
                     oldx = x
@@ -253,6 +263,42 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             i += 1
 
         return new_table
+
+    # def detect_precise_lines_position_and_style(self, table, gray_image):
+    #     for row in table:
+    #         for line in row:
+    #             if line[4] == 'H':
+    #                 img_slice = gray_image[
+    #                     line[1] - 2: line[1] + 2,
+    #                     line[0] + 2: line[2] - 2
+    #                 ]
+    #                 row_indices = np.unique(np.where(img_slice != self.__current_page_erase_color)[0])
+    #                 valid_indices = set()
+    #                 for index in row_indices:
+    #                     count = len(img_slice[index][img_slice[index] != self.__current_page_erase_color])
+    #                     if count >= img_slice.shape[1] / 1.4:
+    #                         valid_indices.add(index)
+    #                 if valid_indices:
+    #                     # TODO: Must detect line style in future same as dashes, double lines, etc...
+    #                     line[1] = line[3] = min(valid_indices) - 2 + line[1]
+    #                 # import pdb; pdb.set_trace()
+    #                 # pass
+    #             else:  # line[4] == 'V'
+    #                 img_slice = gray_image[
+    #                     line[1] + 2: line[1] - 2,
+    #                     line[0] - 2:line[2] + 2]
+    #                 col_indices = np.unique(np.where(img_slice != self.__current_page_erase_color)[1])
+    #                 valid_indices = set()
+    #                 for index in col_indices:
+    #                     count = len(
+    #                         img_slice[:, index][img_slice[:, index] != self.__current_page_erase_color]
+    #                     )
+    #                     if count >= img_slice.shape[0] / 1.4:
+    #                         valid_indices.add(index)
+    #                 if valid_indices:
+    #                     # TODO: Must detect line style in future same as dashes, double lines, etc...
+    #                     line[0] = line[2] = min(valid_indices) - 2 + line[0]
+    #     return table
 
     def process_page(self):
         cv2.imwrite(
@@ -449,6 +495,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             table = self.split_multiple_cells_lines(table)
             # Detect excepted vertical lines
             table = self.detect_excepted_vertical_lines_in_table(table, gray)
+            # Detect precise lines position
+            # table = self.detect_precise_lines_position_and_style(table, gray)
 
             data = {'cells': []}
             data['min-x'] = tables_info[ti]['min-x']
