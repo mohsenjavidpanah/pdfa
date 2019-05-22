@@ -623,7 +623,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 del tables[index]
             else:
                 tables_data.append(data)
-            tables[index] = table
+                tables_data['cells'] = self.detect_cells(table)
+                tables[index] = table
             index += 1
 
         n = 0
@@ -638,6 +639,21 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         cv2.imwrite(
             os.path.splitext(self.pages_images[self.__current_page])[0] + '-out-gray.jpg', gray
         )
+
+    def detect_cells(self, table):
+        hlines = []
+        vlines = []
+        points = np.array()
+        for row in table:
+            for line in row:
+                points.put(np.array(line[0], line[1]))
+                points.put(np.array(line[2], line[3]))
+                if line[4] == 'H':
+                    hlines.append(line)
+                else:  # line[4] == 'V'
+                    vlines.append(line)
+
+        return table
 
 
 class PDFaParser(object):
