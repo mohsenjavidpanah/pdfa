@@ -614,7 +614,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                                     hline_index,
                                     [
                                         hline[2], hline[3],
-                                        next_hline[0], hline[3]
+                                        next_hline[0], hline[3], 'H'
                                     ]
                                 )
                                 break
@@ -623,7 +623,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 del tables[index]
             else:
                 tables_data.append(data)
-                tables_data['cells'] = self.detect_cells(table)
+                tables_data[index]['cells'] = self.detect_cells(table)
                 tables[index] = table
             index += 1
 
@@ -641,19 +641,35 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         )
 
     def detect_cells(self, table):
-        hlines = []
-        vlines = []
-        points = np.array()
+        hlines = np.array(None, None)
+        vlines = np.array(None, None)
+        points = []
+        # points = np.array(None, None)
+        img = self.__current_page_image.copy()
         for row in table:
             for line in row:
-                points.put(np.array(line[0], line[1]))
-                points.put(np.array(line[2], line[3]))
-                if line[4] == 'H':
-                    hlines.append(line)
-                else:  # line[4] == 'V'
-                    vlines.append(line)
+                point1 = np.array([line[0], line[1]])
+                point2 = np.array([line[2], line[3]])
+                if not points or \
+                   (points and np.array(
+                       [np.abs(np.linalg.norm(np.array(p) - point1)) for p in points]
+                   ).min() > 5):
+                    points.append(point1)
+                    img[point1[1], point1[0]] = [255, 0, 0]
+                    print([point1[0], point1[1]], img[point1[1], point1[0]])
+                if points and np.array(
+                        [np.abs(np.linalg.norm(np.array(p) - point2)) for p in points]).min() > 5:
+                    points.append(point2)
+                    img[point2[1], point2[0]] = [255, 0, 0]
+                    print([point2[0], point2[1]], img[point2[1], point2[0]])
 
-        return table
+                if line[4] == 'H':
+                    hlines.put(0, np.array(line))
+                else:  # line[4] == 'V'
+                    vlines.put(0, np.array(line))
+
+        cv2.imwrite('/home/mohsen/aax.png', img)
+        return []
 
 
 class PDFaParser(object):
