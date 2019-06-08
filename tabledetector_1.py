@@ -61,7 +61,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             y2 = int(self.__current_attrs['height'])
             self.__current_page_image = cv2.rectangle(
                 self.__current_page_image,
-                (x1, y1, x2, y2),
+                (x1, y1),
+                (x2, y2),
                 color=(255, 255, 255),
                 thickness=cv2.FILLED
             )
