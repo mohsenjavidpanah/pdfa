@@ -146,7 +146,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
 
     def split_multiple_cells_lines(self, table):
         """
-        Split long lines that members of tow or greater cells
+        Split long lines that members of two or greater cells
 
         Parameters
         ----------
@@ -208,6 +208,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     old_line = new_table[i][j]
                     start_y = line[1]
                     if splits and splits[0] != old_line[3]:
+                        print('>>>', i, new_table[i], j)
                         del new_table[i][j]
                         # if 331 in splits:
                         #     print("----=>", splits)
@@ -256,7 +257,12 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             i += 1
 
         i = 0
-        for row in new_table:
+        while i < len(new_table):
+            row = new_table[i]
+            print(row)
+            # if len(row) == 0:
+            #     del new_table[i]
+            #     continue
             if row[0][4] == 'H':
                 new_table[i] = sorted(row, key=lambda l: [l[0], l[1]])
             elif row[0][4] == 'V':
@@ -511,7 +517,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             is_real_table = True
             next_row = []
             vlines = []
-            for i in range(1, len(table), 2):
+            for i in range(1, len(table) - 1, 2):
                 process_row_lines(table[i], data)
                 prev_row = table[i - 1]
                 row = table[i]
