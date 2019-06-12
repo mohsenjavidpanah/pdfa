@@ -1,8 +1,8 @@
 import os
 import sys
 import tempfile
-from xml import sax
 import logging
+from xml import sax
 
 import cv2
 import numpy as np
@@ -11,6 +11,9 @@ from pdf2image import convert_from_path
 
 filter = False
 logging.basicConfig(level=logging.INFO)
+DEBUG = '--debug' in sys.argv
+if DEBUG:
+    logging.basicConfig(level=logging.DEBUG)
 
 
 class PDFaContentHandler(sax.handler.ContentHandler):
@@ -710,6 +713,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             os.path.splitext(self.pages_images[self.__current_page])[0] + '-out-gray.jpg', gray
         )
 
+    nimage = 0
+
     def detect_cells(self, table):
         hlines = np.array(None, None)
         vlines = np.array(None, None)
@@ -738,7 +743,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 else:  # line[4] == 'V'
                     vlines.put(0, np.array(line))
 
-        cv2.imwrite('/home/mohsen/aax.png', img)
+        cv2.imwrite(f'/home/mohsen/aax-{self.nimage}.png', img)
+        self.nimage += 1
         return []
 
 
@@ -771,6 +777,11 @@ class PDFaParser(object):
 
 
 pdf_paths = sys.argv[1:]
+
+for option in ['--debug']:
+    if option in pdf_paths:
+        del pdf_paths[pdf_paths.index(option)]
+
 if not pdf_paths:
     pdf_paths = [os.path.join(os.getcwd(), '2.pdf')]
 
