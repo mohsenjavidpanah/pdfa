@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 from xml import sax
+import logging
 
 import cv2
 import numpy as np
@@ -9,6 +10,7 @@ from pdf2image import convert_from_path
 
 
 filter = False
+logging.basicConfig(level=logging.INFO)
 
 
 class PDFaContentHandler(sax.handler.ContentHandler):
@@ -57,8 +59,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         if self.__current_tag in ['b', 'text', 'image'] and self.__current_attrs:
             x1 = int(self.__current_attrs['left'])
             y1 = int(self.__current_attrs['top'])
-            x2 = int(self.__current_attrs['width'])
-            y2 = int(self.__current_attrs['height'])
+            x2 = int(self.__current_attrs['width']) + x1
+            y2 = int(self.__current_attrs['height']) + y1
             self.__current_page_image = cv2.rectangle(
                 self.__current_page_image,
                 (x1, y1),
@@ -114,7 +116,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 thickness = 0
                 points = np.where(img_slice <= 220)
                 for x in np.unique(points[1]):
-                    # print(x, (img_slice[:, x] <= 220).sum())
                     if (img_slice[:, x] <= 220).sum() >= abs(vline[1] - vline[3]) / 1.4:
                         line_detected = True
                         thickness += 1
@@ -137,7 +138,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             vrow.append(
                                 [x, vline[1], x, vline[3], 'V', thickness]
                             )
-                            print(">>>", vrow[-1])
                             table[vrow_index] = sorted(vrow, key=lambda r: r[0])
                         line_detected = False
                     oldx = x
@@ -161,6 +161,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             else:
                 all_h_cells.extend(row[:])
 
+        logging.debug(f'Q@ 1 ---> {table}')
         new_table = table[:]
         i = 0
         for row in table:
@@ -175,6 +176,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             splits.add(vline[0])
                     y = line[1]
                     splits = sorted(splits)
+                    logging.debug(f'HHHHHHHHHHHHHHHHHHHHHHHHH {splits}')
                     if splits:
                         old_line = new_table[i][j]
                         del new_table[i][j]
@@ -183,8 +185,10 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         for x in splits:
                             if start_x == x - 1:
                                 thickness += 1
+                                logging.debug('H |||> 1')
                             else:
                                 new_table[i].insert(j, [start_x, y, x, y, 'H', thickness or 1])
+                                logging.debug('H |||> 2')
                                 thickness = 0
                             start_x = x
                         if len(splits) == 0:
@@ -197,21 +201,19 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     for hline in all_h_cells:
                         # if ((abs(hline[0] - line[0]) < 5) or (abs(hline[2] - line[0]) < 5)) and \
                         #    line[1] < hline[1] < line[3]:
-                        # print('>', hline, end=',')
                         if line[1] < hline[1] < line[3] and abs(line[3] - hline[1]) > 5 and \
                            abs(line[1] - hline[1]) > 5:
                             splits.add(hline[1])
-                    # print('')
                     splits.add(line[3])
                     x = line[0]
                     splits = sorted(splits)
+                    logging.debug(f'>>>>>>>>> {i} {len(new_table)} {new_table} {splits}')
                     old_line = new_table[i][j]
                     start_y = line[1]
                     if splits and splits[0] != old_line[3]:
-                        print('>>>', i, new_table[i], j)
+                        logging.debug(f'0 >>> {splits} {[line[1], line[3]]}')
+                        logging.debug(f'1 >>> {new_table[i]}')
                         del new_table[i][j]
-                        # if 331 in splits:
-                        #     print("----=>", splits)
                         for y in splits:
                             # Split Vertical Line in Others Row
                             vinserted = False
@@ -221,35 +223,84 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             for vrow in new_table:
                                 if vinserted:
                                     break
+
                                 for vline in vrow:
+                                    if vline[4] != 'V':
+                                        continue
+
                                     dist = (abs(vline[1] - start_y))
-                                    if vline[4] == 'V' and dist <= 5:
-                                        # if y in [331]:
-                                        #     import pdb; pdb.set_trace()
-                                        vrow.append(
-                                            [x, vrow[0][1], x, vrow[0][3], 'V', 1]
-                                        )
-                                        # if 331 in splits:
-                                        #     print("1 >>>=>", start_y, y, vrow)
+                                    logging.debug(f'2 >>> {start_y} {vline}')
+                                    # import pdb; pdb.set_trace()
+                                    if dist <= 5:
+                                        vrow.append([x, start_y, x, y, 'V', 1])
+                                        logging.debug(f'2.1 new_table >>> {new_table}')
                                         start_y = y
                                         vinserted = True
                                         break
-                                    elif vline[4] == 'V' and dist < (min_dist or dist + 1):
+                                    elif dist < (min_dist or dist + 1):
+                                        logging.debug(f'2.2 new_table >>> {new_table}')
                                         min_dist = dist
                                         min_vrow = vrow
-                                        # if [x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1] in min_vrow:
-                                        #     vinserted = True
-                                        #     break
+                                    # else:
+                                    #     new_table[i].append([x, start_y, x, y, 'V', 1])
+                                    #     logging.debug('2.3 len(vrow) >>>', len(vrow))
+
                                 vindex += 1
-                            # if y in [331]:
-                            #     import pdb; pdb.set_trace()
+
                             if not vinserted:
-                                if [x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1] not in min_vrow:
+                                # Split Vertical Line in Others Row
+                                min_hrows = {}
+                                hindex = 0
+                                hrow_index = 0
+
+                                for hrow in new_table:
+                                    for hline in hrow:
+                                        if hline[4] != 'H':
+                                            continue
+
+                                        dist = (abs(hline[1] - start_y))
+                                        logging.debug(f'3 >>> {start_y} {hline} {dist}')
+
+                                        min_hrows[dist] = hrow_index
+                                        break
+
+                                    hrow_index += 1
+
+                                if min_hrows:
+                                    min_row = min(*min_hrows.keys())
+                                    hrow_index = min_hrows[min_row]
+                                    logging.debug(f'4 >>> {start_y} {hline} {hrow_index}')
+                                    insert_after = True
+                                    if new_table[hrow_index][0][1] < start_y or (hrow_index + 1) == len(new_table):
+                                        if (hrow_index + 1) == len(new_table):
+                                            hrow_index -= 2
+                                        # if hrow_index == 0 and new_table[hrow_index][0][4] == 'H':
+                                        #     hrow_index += 1
+                                        #     new_table.insert(0, [])
+
+                                        new_table[hrow_index + 1].append([x, start_y, x, y, 'V', 1])
+                                        logging.debug(f'4.1 new_table >>> {new_table}')
+                                        start_y = y
+                                        vinserted = True
+                                        if len(new_table[i]) == 0:
+                                            del new_table[i]
+                                        insert_after = False
+
+                                    if insert_after is True:
+                                        if len(new_table) < (hrow_index + 2):
+                                            new_table.append([])
+                                        new_table[hrow_index + 1].append([x, start_y, x, y, 'V', 1])
+                                        logging.debug(f'4.2 new_table >>> {new_table}')
+                                        start_y = y
+                                        vinserted = True
+                                        if len(new_table[i]) == 0:
+                                            del new_table[i]
+
+                                logging.debug(f'5 >>> {min_vrow}')
+                                if not vinserted and \
+                                   [x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1] not in min_vrow:
                                     min_vrow.append([x, min_vrow[0][1], x, min_vrow[0][3], 'V', 1])
-                                    # if 331 in splits:
-                                    #     print("2 >>>=>", start_y, y, min_dist, vrow)
-                            # elif 400 > y >= 266:
-                            #     print("?? >", min_vrow, '\n', '==' * 40)
+
                         if len(splits) == 0:
                             new_table[i].insert(j, old_line)
                     splits = set()
@@ -259,7 +310,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         i = 0
         while i < len(new_table):
             row = new_table[i]
-            print(row)
+            logging.debug(f'6 >>> {row}')
             # if len(row) == 0:
             #     del new_table[i]
             #     continue
@@ -268,6 +319,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             elif row[0][4] == 'V':
                 new_table[i] = sorted(row, key=lambda l: [l[1], l[0]])
             i += 1
+
+        logging.debug(f'Q@ 2 ---> {table}')
 
         return new_table
 
@@ -476,6 +529,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     line[3] = data['max-y']
 
         for table in tables:
+            logging.debug(f'\n\n\n\nTABLE --- :> {table}')
             # Reordering Table Rows First
             for i in range(1, len(table), 2):
                 r1 = table[i]
@@ -490,6 +544,19 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                                 if abs(r1[l1][1] - r2[l2][1]) < 10:
                                     r1.append(r2[l2])
                                     del r2[l2]
+
+            k = 1
+            while k < len(table) - 1:
+                if len(table[k]) == 0:
+                    if table[k - 1][0][4] == table[k + 1][0][4]:
+                        table[k - 1] += table[k + 1]
+                        del table[k]
+                        del table[k]
+                        continue
+                k += 1
+
+
+            logging.debug(f'\n\nTABLE :> {table}\n\n\n\n\n')
             i = 0
             while i < len(table) - 1:
                 if table[i][0][4] == table[i + 1][0][4]:
@@ -535,9 +602,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     #     line[1] = old_line[3]
 
                     for l in prev_row:
-                        # if ti >= 8 and i == 3:
-                        #     print(ti, i, line_index, len(row))
-                        #     import pdb; pdb.set_trace()
                         if abs(y1 - l[1]) < 15:
                             line[1] = l[1] + 50
                         if abs(y1 - l[3]) < 15:
@@ -636,7 +700,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
 
         n = 0
         for table in tables:
-            # print('>', table)
             for row in table:
                 for line in row:
                     n += 1
@@ -663,12 +726,12 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                    ).min() > 5):
                     points.append(point1)
                     img[point1[1], point1[0]] = [255, 0, 0]
-                    print([point1[0], point1[1]], img[point1[1], point1[0]])
+                    # logging.debug([point1[0], point1[1]], img[point1[1], point1[0]])
                 if points and np.array(
                         [np.abs(np.linalg.norm(np.array(p) - point2)) for p in points]).min() > 5:
                     points.append(point2)
                     img[point2[1], point2[0]] = [255, 0, 0]
-                    print([point2[0], point2[1]], img[point2[1], point2[0]])
+                    # logging.debug([point2[0], point2[1]], img[point2[1], point2[0]])
 
                 if line[4] == 'H':
                     hlines.put(0, np.array(line))
@@ -685,7 +748,7 @@ class PDFaParser(object):
         self.pdf = open(pdf_path)
         self.pages = []
         self.temp = tempfile.mkdtemp(prefix="pidifa_")
-        print(self.temp + '/pages')
+        logging.info(self.temp + '/pages')
 
     def convert_pdf_to_docx(self):
         words, boxes = self.fold_pdf_style()
@@ -693,7 +756,7 @@ class PDFaParser(object):
     def fold_pdf_style(self):
         # Extract XML
         tpath = os.path.join(self.temp, "pdf.xml")
-        # print("----->", f"pdftohtml -c -xml {self.pdf_path} {tpath}")
+        # logging.debug("----->", f"pdftohtml -c -xml {self.pdf_path} {tpath}")
         os.system(f"pdftohtml -c -xml {self.pdf_path} {tpath}")
         # Extract PDF Pages Images
         pages_dir = os.path.join(self.temp, 'pages')
@@ -730,7 +793,7 @@ for pdf_path in pdf_paths:
 # lines = cv2.HoughLines(edges, 1, np.pi / 180, 150)
 
 # if not lines.any():
-#     print('No lines were found')
+#     logging.debug('No lines were found')
 #     exit()
 
 # if filter:
@@ -768,7 +831,7 @@ for pdf_path in pdf_paths:
 #             if abs(rho_i - rho_j) < rho_threshold and abs(theta_i - theta_j) < theta_threshold:
 #                 line_flags[indices[j]] = False # if it is similar and have not been disregarded yet then drop it now
 
-# print('number of Hough lines:', len(lines))
+# logging.debug('number of Hough lines:', len(lines))
 
 # filtered_lines = []
 
@@ -777,7 +840,7 @@ for pdf_path in pdf_paths:
 #         if line_flags[i]:
 #             filtered_lines.append(lines[i])
 
-#     print('Number of filtered lines:',  len(filtered_lines))
+#     logging.debug('Number of filtered lines:',  len(filtered_lines))
 # else:
 #     filtered_lines = lines
 
