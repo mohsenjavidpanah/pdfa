@@ -10,10 +10,13 @@ from pdf2image import convert_from_path
 
 
 filter = False
-logging.basicConfig(level=logging.INFO)
+
 DEBUG = '--debug' in sys.argv
+import pdb; pdb.set_trace()
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
 
 
 class PDFaContentHandler(sax.handler.ContentHandler):
