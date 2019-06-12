@@ -182,7 +182,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             splits.add(vline[0])
                     y = line[1]
                     splits = sorted(splits)
-                    logging.debug(f'HHHHHHHHHHHHHHHHHHHHHHHHH {splits}')
+                    # logging.debug(f'HHHHHHHHHHHHHHHHHHHHHHHHH {splits}')
                     if splits:
                         old_line = new_table[i][j]
                         del new_table[i][j]
@@ -191,10 +191,10 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         for x in splits:
                             if start_x == x - 1:
                                 thickness += 1
-                                logging.debug('H |||> 1')
+                                # logging.debug('H |||> 1')
                             else:
                                 new_table[i].insert(j, [start_x, y, x, y, 'H', thickness or 1])
-                                logging.debug('H |||> 2')
+                                # logging.debug('H |||> 2')
                                 thickness = 0
                             start_x = x
                         if len(splits) == 0:
@@ -213,7 +213,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     splits.add(line[3])
                     x = line[0]
                     splits = sorted(splits)
-                    logging.debug(f'>>>>>>>>> {i} {len(new_table)} {new_table} {splits}')
+                    # logging.debug(f'>>>>>>>>> {i} {len(new_table)} {new_table} {splits}')
                     old_line = new_table[i][j]
                     start_y = line[1]
                     if splits and splits[0] != old_line[3]:
@@ -535,7 +535,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     line[3] = data['max-y']
 
         for table in tables:
-            logging.debug(f'\n\n\n\nTABLE --- :> {table}')
+            logging.debug(f'\nTABLE --- :> {table}')
             # Reordering Table Rows First
             for i in range(1, len(table), 2):
                 r1 = table[i]
@@ -562,7 +562,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 k += 1
 
 
-            logging.debug(f'\n\nTABLE :> {table}\n\n\n\n\n')
+            logging.debug(f'TABLE :> {table}\n')
             i = 0
             while i < len(table) - 1:
                 if table[i][0][4] == table[i + 1][0][4]:
