@@ -1,7 +1,8 @@
 import os
 import sys
-import tempfile
+import json
 import logging
+import tempfile
 from xml import sax
 
 import cv2
@@ -12,7 +13,7 @@ from pdf2image import convert_from_path
 filter = False
 
 DEBUG = '--debug' in sys.argv
-import pdb; pdb.set_trace()
+
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
 else:
@@ -167,13 +168,15 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             else:
                 all_h_cells.extend(row[:])
 
-        logging.debug(f'Q@ 1 ---> {table}')
+        # logging.debug(f'Q@ 1 ---> {table}')
         new_table = table[:]
         i = 0
-        for row in table:
+        while i < len(table):
+            row = table[i]
             j = 0
             splits = set()
-            for line in row:
+            while j < len(row):
+                line = row[j]
                 if line[4] == 'H':
                     for vline in all_v_cells:
                         # if ((abs(vline[1] - line[1]) < 5) or (abs(vline[3] - line[1]) < 5)) and \
@@ -201,9 +204,16 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             new_table[i].insert(j, old_line)
                         else:
                             new_table[i].insert(j, [start_x, y, line[2], y, 'H', thickness or 1])
-                    splits = set()
+
+                        splits = set()
+                        i = j = 0
+                        break
+
                 elif line[4] == 'V':
                     # splits.add(line[1])
+                    logging.debug(f'----)> {line}')
+                    if line == [847, 236, 847, 397, 'V']:
+                        logging.debug(f'??????????????\n' * 20)
                     for hline in all_h_cells:
                         # if ((abs(hline[0] - line[0]) < 5) or (abs(hline[2] - line[0]) < 5)) and \
                         #    line[1] < hline[1] < line[3]:
@@ -213,7 +223,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     splits.add(line[3])
                     x = line[0]
                     splits = sorted(splits)
-                    # logging.debug(f'>>>>>>>>> {i} {len(new_table)} {new_table} {splits}')
+
                     old_line = new_table[i][j]
                     start_y = line[1]
                     if splits and splits[0] != old_line[3]:
@@ -239,12 +249,12 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                                     # import pdb; pdb.set_trace()
                                     if dist <= 5:
                                         vrow.append([x, start_y, x, y, 'V', 1])
-                                        logging.debug(f'2.1 new_table >>> {new_table}')
+                                        logging.debug(f'2.1 new_table >>> {vrow[-1]}')
                                         start_y = y
                                         vinserted = True
                                         break
                                     elif dist < (min_dist or dist + 1):
-                                        logging.debug(f'2.2 new_table >>> {new_table}')
+                                        logging.debug(f'2.2 new_table >>> []')
                                         min_dist = dist
                                         min_vrow = vrow
                                     # else:
@@ -309,7 +319,12 @@ class PDFaContentHandler(sax.handler.ContentHandler):
 
                         if len(splits) == 0:
                             new_table[i].insert(j, old_line)
-                    splits = set()
+
+                        splits = set()
+                        i = j = 0
+                        break
+
+                splits = set()
                 j += 1
             i += 1
 
@@ -326,7 +341,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 new_table[i] = sorted(row, key=lambda l: [l[1], l[0]])
             i += 1
 
-        logging.debug(f'Q@ 2 ---> {table}')
+        # logging.debug(f'Q@ 2 ---> {table}')
 
         return new_table
 
@@ -562,7 +577,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 k += 1
 
 
-            logging.debug(f'TABLE :> {table}\n')
             i = 0
             while i < len(table) - 1:
                 if table[i][0][4] == table[i + 1][0][4]:
@@ -577,6 +591,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             table = self.detect_excepted_vertical_lines_in_table(table, gray)
             # Detect precise lines position
             # table = self.detect_precise_lines_position_and_style(table, gray)
+            logging.debug(f'TABLE :> {table}\n' + ('--' * 40))
 
             data = {'cells': []}
             data['min-x'] = tables_info[ti]['min-x']
@@ -726,8 +741,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         img = self.__current_page_image.copy()
         for row in table:
             for line in row:
-                point1 = np.array([line[0], line[1]])
-                point2 = np.array([line[2], line[3]])
+                point1 = list([line[0], line[1]])
+                point2 = list([line[2], line[3]])
                 if not points or \
                    (points and np.array(
                        [np.abs(np.linalg.norm(np.array(p) - point1)) for p in points]
@@ -747,6 +762,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     vlines.put(0, np.array(line))
 
         cv2.imwrite(f'/home/mohsen/aax-{self.nimage}.png', img)
+        with open(f'/home/mohsen/aax-{self.nimage}.json', 'w') as f:
+            f.write(json.dumps(points))
         self.nimage += 1
         return []
 
