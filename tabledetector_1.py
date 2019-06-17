@@ -731,7 +731,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             os.path.splitext(self.pages_images[self.__current_page])[0] + '-out-gray.jpg', gray
         )
 
-    nimage = 0
+    # nimage = 0
 
     def detect_cells(self, table):
         hlines = np.array(None, None)
@@ -761,11 +761,27 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 else:  # line[4] == 'V'
                     vlines.put(0, np.array(line))
 
-        cv2.imwrite(f'/home/mohsen/aax-{self.nimage}.png', img)
-        with open(f'/home/mohsen/aax-{self.nimage}.json', 'w') as f:
-            f.write(json.dumps(points))
-        self.nimage += 1
-        return []
+        # cv2.imwrite(f'/home/mohsen/aax-{self.nimage}.png', img)
+        # with open(f'/home/mohsen/aax-{self.nimage}.json', 'w') as f:
+        #     f.write(json.dumps(points))
+
+        points = np.asarray(points)
+        xs = np.unique(points[:, 0])
+        ys = np.unique(points[:, 1])
+        cells = []
+        for y in ys[:-1]:
+            cells.append([])
+            for x in xs[:-1]:
+                cell = {
+                    'start-x': x,
+                    'start-y': y,
+                    'end-x': np.where(xs > x)[0][0],
+                    'end-y': np.where(ys > y)[0][0]
+                }
+                cells[-1].append(cell)
+
+        # self.nimage += 1
+        return cells
 
 
 class PDFaParser(object):
