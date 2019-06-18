@@ -734,13 +734,14 @@ class PDFaContentHandler(sax.handler.ContentHandler):
     # nimage = 0
 
     def detect_cells(self, table):
-        hlines = np.array(None, None)
-        vlines = np.array(None, None)
+        hlines = []
+        vlines = []
         points = []
         # points = np.array(None, None)
         img = self.__current_page_image.copy()
         for row in table:
             for line in row:
+                enhanced_line = line[:]
                 point1 = list([line[0], line[1]])
                 point2 = list([line[2], line[3]])
                 if not points or \
@@ -757,30 +758,42 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     # logging.debug([point2[0], point2[1]], img[point2[1], point2[0]])
 
                 if line[4] == 'H':
-                    hlines.put(0, np.array(line))
+                    hlines.append([point1[0], point1[1], point2[0], point2[1], 'H'])
                 else:  # line[4] == 'V'
-                    vlines.put(0, np.array(line))
+                    vlines.append([point1[0], point1[1], point2[0], point2[1], 'V'])
 
         # cv2.imwrite(f'/home/mohsen/aax-{self.nimage}.png', img)
         # with open(f'/home/mohsen/aax-{self.nimage}.json', 'w') as f:
         #     f.write(json.dumps(points))
 
+        # hlines = np.array(hlines)
+        # vlines = np.array(vlines)
+
         points = np.asarray(points)
         xs = np.unique(points[:, 0])
         ys = np.unique(points[:, 1])
         cells = []
+        # import pdb; pdb.set_trace()
         for y in ys[:-1]:
             cells.append([])
             for x in xs[:-1]:
+                end_x = xs[np.where(xs > x)[0][0]]
+                end_y = ys[np.where(ys > y)[0][0]]
                 cell = {
                     'start-x': x,
                     'start-y': y,
-                    'end-x': np.where(xs > x)[0][0],
-                    'end-y': np.where(ys > y)[0][0]
+                    'end-x': end_x,
+                    'end-y': end_y
                 }
+
+                # TODO: Add Style To Returned Data
+
+                cell['right_merge'] = [end_x, y, end_x, end_y, 'V'] not in vlines
+                cell['bottom_merge'] = [x, end_y, end_x, end_y, 'H'] not in hlines
                 cells[-1].append(cell)
 
         # self.nimage += 1
+        print(cells, '\n' * 3)
         return cells
 
 
