@@ -793,7 +793,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                 cells[-1].append(cell)
 
         # self.nimage += 1
-        print(cells, '\n' * 3)
         return cells
 
 
