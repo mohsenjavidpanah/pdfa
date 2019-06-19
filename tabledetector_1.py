@@ -7,6 +7,7 @@ from xml import sax
 
 import cv2
 import numpy as np
+from PyPDF2 import PdfFileReader
 from pdf2image import convert_from_path
 
 
@@ -68,11 +69,26 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             y1 = int(self.__current_attrs['top'])
             x2 = int(self.__current_attrs['width']) + x1
             y2 = int(self.__current_attrs['height']) + y1
+
+            rect = cv2.cvtColor(self.__current_page_image[x1:x2, y1:y2], cv2.COLOR_BGR2GRAY)
+            erase_color = (255, 255, 255)
+            print(type(rect))
+            if type(rect) is not type(None) and len(rect) and len(rect[0]):
+                color = int(np.argmax(np.bincount(rect[0:3].flatten())))
+                # erase_color = tuple(int(c) for c in rect[0][0])
+                erase_color = (color, color, color)
+            if 'src' in self.__current_attrs:
+                cv2.imwrite(
+                    f'{self.__current_attrs["src"]}.{x1}-{y1}_{x2}-{y2}.png',
+                    self.__current_page_image[x1:x2, y1:y2]
+                )
+            print('???>>', erase_color, self.__current_attrs)
+
             self.__current_page_image = cv2.rectangle(
                 self.__current_page_image,
                 (x1, y1),
                 (x2, y2),
-                color=(255, 255, 255),
+                color=(erase_color[0], erase_color[1], erase_color[2]),  # (255, 255, 255),
                 thickness=cv2.FILLED
             )
 
@@ -798,8 +814,15 @@ class PDFaContentHandler(sax.handler.ContentHandler):
 
 class PDFaParser(object):
     def __init__(self, pdf_path):
+        # with open(pdf_path, "rb") as pdf_file:
+        #     page = PdfFileReader(pdf_file).getPage(0)
+        #     page_data = page.mediaBox
+        #     import pdb; pdb.set_trace()
+        #     print('>>>>>', page_data)
+
         self.pdf_path = pdf_path
         self.pdf = open(pdf_path)
+
         self.pages = []
         self.temp = tempfile.mkdtemp(prefix="pidifa_")
         logging.info(self.temp + '/pages')
@@ -829,13 +852,13 @@ pdf_paths = sys.argv[1:]
 for option in ['--debug']:
     if option in pdf_paths:
         del pdf_paths[pdf_paths.index(option)]
-
 if not pdf_paths:
     pdf_paths = [os.path.join(os.getcwd(), '2.pdf')]
 
+
 for pdf_path in pdf_paths:
-    pdfp = PDFaParser(pdf_path)
-    pdfp.convert_pdf_to_docx()
+    parser = PDFaParser(pdf_path)
+    parser.convert_pdf_to_docx()
 
 
 # file_path = '2.jpg'
