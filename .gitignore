@@ -144,3 +144,4 @@ Session.vim
 
 # Project
 *.sublime-workspace
+*.sublime-project

@@ -1,13 +1,13 @@
 import os
 import sys
-import json
+# import json
 import logging
 import tempfile
 from xml import sax
 
 import cv2
 import numpy as np
-from PyPDF2 import PdfFileReader
+# from PyPDF2 import PdfFileReader
 from pdf2image import convert_from_path
 
 
@@ -70,19 +70,14 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             x2 = int(self.__current_attrs['width']) + x1
             y2 = int(self.__current_attrs['height']) + y1
 
-            rect = cv2.cvtColor(self.__current_page_image[x1:x2, y1:y2], cv2.COLOR_BGR2GRAY)
+            rect = cv2.cvtColor(self.__current_page_image[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
             erase_color = (255, 255, 255)
-            print(type(rect))
-            if type(rect) is not type(None) and len(rect) and len(rect[0]):
-                color = int(np.argmax(np.bincount(rect[0:3].flatten())))
-                # erase_color = tuple(int(c) for c in rect[0][0])
-                erase_color = (color, color, color)
-            if 'src' in self.__current_attrs:
-                cv2.imwrite(
-                    f'{self.__current_attrs["src"]}.{x1}-{y1}_{x2}-{y2}.png',
-                    self.__current_page_image[x1:x2, y1:y2]
-                )
-            print('???>>', erase_color, self.__current_attrs)
+
+            if tag != 'image':
+                if not isinstance(rect, type(None)) and len(rect) and len(rect[0]):
+                    color = int(np.argmax(np.bincount(rect[0:3].flatten())))
+                    # erase_color = tuple(int(c) for c in rect[0][0])
+                    erase_color = (color, color, color)
 
             self.__current_page_image = cv2.rectangle(
                 self.__current_page_image,
@@ -93,6 +88,7 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             )
 
         if tag == 'page':
+            # print('page >>>', self.__current_attrs)
             self.process_page()
 
         self.__hierarchy.pop()
@@ -135,18 +131,16 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                     vline[1]:vline[3],
                     vline[2] + 5:next_vline[0] - 5
                 ]
+
                 oldx = 0
                 thickness = 0
                 points = np.where(img_slice <= 220)
+                x = 0
                 for x in np.unique(points[1]):
                     if (img_slice[:, x] <= 220).sum() >= abs(vline[1] - vline[3]) / 1.4:
                         line_detected = True
                         thickness += 1
                     elif line_detected:
-                        cv2.imwrite(
-                            f'/home/mohsen/aaa/{vline[2]} {vline[1]} -'
-                            f' {next_vline[0]} {vline[3]}.png', img_slice
-                        )
                         if [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness] \
                            not in table[vrow_index]:
                             x = vline[0] + oldx + 5
@@ -164,6 +158,26 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             table[vrow_index] = sorted(vrow, key=lambda r: r[0])
                         line_detected = False
                     oldx = x
+                else:
+                    oldx = x
+
+                if line_detected:
+                    if [vline[0] + oldx + 5, vline[1], vline[2] + oldx + 5, vline[3], 'V', thickness] \
+                       not in table[vrow_index]:
+                        x = vline[0] + oldx + 5
+                        initiated_x = x
+                        for same_vrow in table:
+                            for x_vline in same_vrow:
+                                if abs(x_vline[0] - x) < 5:
+                                    x = x_vline[0]
+                                    break
+                            if x != initiated_x:
+                                break
+                        vrow.append(
+                            [x, vline[1], x, vline[3], 'V', thickness]
+                        )
+                        table[vrow_index] = sorted(vrow, key=lambda r: r[0])
+                    line_detected = False
 
         return table
 
@@ -282,7 +296,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                             if not vinserted:
                                 # Split Vertical Line in Others Row
                                 min_hrows = {}
-                                hindex = 0
                                 hrow_index = 0
 
                                 for hrow in new_table:
@@ -303,7 +316,8 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                                     hrow_index = min_hrows[min_row]
                                     logging.debug(f'4 >>> {start_y} {hline} {hrow_index}')
                                     insert_after = True
-                                    if new_table[hrow_index][0][1] < start_y or (hrow_index + 1) == len(new_table):
+                                    if new_table[hrow_index][0][1] < start_y or \
+                                       (hrow_index + 1) == len(new_table):
                                         if (hrow_index + 1) == len(new_table):
                                             hrow_index -= 2
                                         # if hrow_index == 0 and new_table[hrow_index][0][4] == 'H':
@@ -592,8 +606,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
                         continue
                 k += 1
 
-
-            i = 0
             while i < len(table) - 1:
                 if table[i][0][4] == table[i + 1][0][4]:
                     table[i].extend(table[i + 1])
@@ -618,114 +630,115 @@ class PDFaContentHandler(sax.handler.ContentHandler):
             process_row_lines(table[0], data)
             process_row_lines(table[-1], data)
             lines = table[0][:]
-            is_real_table = True
+            is_real_table = len(table) > 1
             next_row = []
             vlines = []
-            for i in range(1, len(table) - 1, 2):
-                process_row_lines(table[i], data)
-                prev_row = table[i - 1]
-                row = table[i]
-                next_row = table[i + 1]
-                process_row_lines(row, data)
-                # old_line = row[0]
-                for line_index in range(len(row)):
-                    line = row[line_index]
-                    x1, y1, x2, y2 = line[:4]
-                    if line[4] != 'V':
-                        raise Exception('Vertical!!?')
-                    if abs(y1 - data['min-y']) < 10:
-                        line[1] = data['min-y']
-                    # elif abs(y1 - old_line[3]) < 10:
-                    #     line[1] = old_line[3]
+            if is_real_table:
+                for i in range(1, len(table) - 1, 2):
+                    process_row_lines(table[i], data)
+                    prev_row = table[i - 1]
+                    row = table[i]
+                    next_row = table[i + 1]
+                    process_row_lines(row, data)
+                    # old_line = row[0]
+                    for line_index in range(len(row)):
+                        line = row[line_index]
+                        x1, y1, x2, y2 = line[:4]
+                        if line[4] != 'V':
+                            raise Exception('Vertical!!?')
+                        if abs(y1 - data['min-y']) < 10:
+                            line[1] = data['min-y']
+                        # elif abs(y1 - old_line[3]) < 10:
+                        #     line[1] = old_line[3]
 
-                    for l in prev_row:
-                        if abs(y1 - l[1]) < 15:
-                            line[1] = l[1] + 50
-                        if abs(y1 - l[3]) < 15:
-                            line[1] = l[3]
-                        if abs(y2 - l[1]) < 15:
-                            line[3] = l[1] + 50
-                        if abs(y2 - l[3]) < 15:
-                            line[3] = l[3]
-                        if abs(x1 - l[0]) < 15:
-                            l[0] = x1
-                        elif abs(x1 - l[2]) < 15:
-                            l[2] = x1
+                        for l in prev_row:
+                            if abs(y1 - l[1]) < 15:
+                                line[1] = l[1] + 50
+                            if abs(y1 - l[3]) < 15:
+                                line[1] = l[3]
+                            if abs(y2 - l[1]) < 15:
+                                line[3] = l[1] + 50
+                            if abs(y2 - l[3]) < 15:
+                                line[3] = l[3]
+                            if abs(x1 - l[0]) < 15:
+                                l[0] = x1
+                            elif abs(x1 - l[2]) < 15:
+                                l[2] = x1
 
-                    for l in next_row:
-                        if abs(y2 - l[3]) < 15:
-                            line[3] = l[3]
-                        elif abs(y2 - l[1]) < 15:
-                            line[3] = l[1]
-                        if abs(y1 - l[1]) < 15:
-                            line[1] = l[1] + 50
-                        if abs(y1 - l[3]) < 15:
-                            line[1] = l[3]
-                        if abs(x1 - l[0]) < 15:
-                            l[0] = x1
-                        if abs(x1 - l[2]) < 15:
-                            l[2] = x1
+                        for l in next_row:
+                            if abs(y2 - l[3]) < 15:
+                                line[3] = l[3]
+                            elif abs(y2 - l[1]) < 15:
+                                line[3] = l[1]
+                            if abs(y1 - l[1]) < 15:
+                                line[1] = l[1] + 50
+                            if abs(y1 - l[3]) < 15:
+                                line[1] = l[3]
+                            if abs(x1 - l[0]) < 15:
+                                l[0] = x1
+                            if abs(x1 - l[2]) < 15:
+                                l[2] = x1
 
-                    vlines.append(line)
+                        vlines.append(line)
 
-                    # else:
-                    #     if abs(x1 - data['min-x']) < 10:
-                    #         line[0] = data['min-x']
-                    #     elif abs(x1 - old_line[0]) < 10:
-                    #         line[0] = old_line[0]
-                    # old_line = line
+                        # else:
+                        #     if abs(x1 - data['min-x']) < 10:
+                        #         line[0] = data['min-x']
+                        #     elif abs(x1 - old_line[0]) < 10:
+                        #         line[0] = old_line[0]
+                        # old_line = line
 
-            for last_line in next_row:
-                if last_line and last_line[1] != last_line[3]:
-                    last_line[1] = max(last_line[1], last_line[3])
-                    last_line[3] = last_line[1]
+                for last_line in next_row:
+                    if last_line and last_line[1] != last_line[3]:
+                        last_line[1] = max(last_line[1], last_line[3])
+                        last_line[3] = last_line[1]
 
-            for j in range(0, len(table), 2):
-                hrow = table[j]
-                for hline in hrow:
-                    for vline in vlines:
-                        if abs(hline[0] - vline[0]) < 10:
-                            hline[0] = vline[0]
-                        if abs(hline[2] - vline[2]) < 10:
-                            hline[2] = vline[2]
+                for j in range(0, len(table), 2):
+                    hrow = table[j]
+                    for hline in hrow:
+                        for vline in vlines:
+                            if abs(hline[0] - vline[0]) < 10:
+                                hline[0] = vline[0]
+                            if abs(hline[2] - vline[2]) < 10:
+                                hline[2] = vline[2]
 
-            # Detect excepted Horizontal Lines
-            for hrow_index in range(0, len(table), 2):
-                hrow = table[hrow_index]
-                for hline_index in range(len(hrow)):
-                    hline = hrow[hline_index]
+                # Detect excepted Horizontal Lines
+                for hrow_index in range(0, len(table), 2):
+                    hrow = table[hrow_index]
+                    for hline_index in range(len(hrow)):
+                        hline = hrow[hline_index]
 
-                    next_hline = None
-                    if hline_index < len(hrow) - 1:
-                        next_hline = hrow[hline_index + 1]
-                    else:
-                        next_hline = [data['max-x']]
+                        next_hline = None
+                        if hline_index < len(hrow) - 1:
+                            next_hline = hrow[hline_index + 1]
+                        else:
+                            next_hline = [data['max-x']]
 
-                    if [hline[2], hline[3], next_hline[0], hline[3]] in hrow:
-                        continue
+                        if [hline[2], hline[3], next_hline[0], hline[3]] in hrow:
+                            continue
 
-                    if next_hline[0] - hline[2] > 2:
-                        img_slice = gray[
-                            hline[1] - 4:hline[1] + 4,
-                            hline[2] + 2:next_hline[0] - 2
-                        ].copy()
-                        img_slice[img_slice == self.__current_page_erase_color] = 0
-                        img_slice[img_slice != 0] = 255
+                        if next_hline[0] - hline[2] > 2:
+                            img_slice = gray[
+                                hline[1] - 4:hline[1] + 4,
+                                hline[2] + 2:next_hline[0] - 2
+                            ].copy()
+                            img_slice[img_slice == self.__current_page_erase_color] = 0
+                            img_slice[img_slice != 0] = 255
 
-                        counts = 0
-                        for y in np.unique(np.nonzero(img_slice)[0]):
-                            counts = np.count_nonzero(img_slice[y])
-                            # Maybe next time in others PDF pages complexest condition raisin
-                            # But in current time i dont consider these
-                            if 5 < counts >= img_slice.shape[1] / 1.4:
-                                hrow.insert(
-                                    hline_index,
-                                    [
-                                        hline[2], hline[3],
-                                        next_hline[0], hline[3], 'H'
-                                    ]
-                                )
-                                break
+                            counts = 0
+                            for y in np.unique(np.nonzero(img_slice)[0]):
+                                counts = np.count_nonzero(img_slice[y])
+                                # Maybe next time in others PDF pages complexest condition raisin
+                                # But in current time i dont consider these
+                                if 5 < counts >= img_slice.shape[1] / 1.4:
+                                    hrow.insert(
+                                        hline_index,
+                                        [
+                                            hline[2], hline[3],
+                                            next_hline[0], hline[3], 'H'
+                                        ]
+                                    )
+                                    break
 
             if not is_real_table:
                 del tables[index]
@@ -757,7 +770,6 @@ class PDFaContentHandler(sax.handler.ContentHandler):
         img = self.__current_page_image.copy()
         for row in table:
             for line in row:
-                enhanced_line = line[:]
                 point1 = list([line[0], line[1]])
                 point2 = list([line[2], line[3]])
                 if not points or \
@@ -853,7 +865,7 @@ for option in ['--debug']:
     if option in pdf_paths:
         del pdf_paths[pdf_paths.index(option)]
 if not pdf_paths:
-    pdf_paths = [os.path.join(os.getcwd(), '2.pdf')]
+    pdf_paths = [os.path.join(os.getcwd(), 'features/assets/gtk.pdf')]
 
 
 for pdf_path in pdf_paths:
